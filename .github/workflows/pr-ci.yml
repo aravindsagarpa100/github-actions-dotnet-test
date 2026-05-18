@@ -129,11 +129,28 @@ jobs:
       - name: Run unit tests with coverage
         shell: pwsh
         env:
-          DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86          
+          DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86
           DOTNET_ROOT_X86: ${{ github.workspace }}\dotnet-x86
         run: |
+          $testDlls = Get-ChildItem `
+            . `
+            -Recurse `
+            *Tests.dll `
+            | Where-Object {
+                $_.FullName -notmatch '\\obj\\' `
+                -and $_.FullName -notmatch 'TestAdapter'
+              }
+
+          if (-not $testDlls) {
+            Write-Error "No test DLLs found"
+            exit 1
+          }
+
+          Write-Host "Found test DLLs:"
+          $testDlls.FullName
+
           & "$env:VSTEST_PATH" `
-            .\\artifacts\\**\\*Tests.dll `
+            $testDlls.FullName `
             /Platform:x86 `
             /EnableCodeCoverage `
             /Settings:coverlet.runsettings
