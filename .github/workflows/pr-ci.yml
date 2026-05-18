@@ -4,57 +4,65 @@ on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, ready_for_review]
 
 env:
-  SOLUTION: '**/*.sln'
   BUILD_PLATFORM: x86
   BUILD_CONFIGURATION: Release
-  DOTNET_INSTALL_DIR: '${{ github.workspace }}\\dotnet-x86'
+  DOTNET_X86_DIR: '${{ github.workspace }}\dotnet-x86'
 
 jobs:
   build-test:
     runs-on: windows-latest
+    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK (x86)
+      # Installs the x64 SDK (needed by NuGet/MSBuild tooling) AND
+      # sets up the global.json SDK resolver — one less manual step.
+      - name: Setup .NET 8 SDK (x64 tooling)
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Install .NET 8 x86 runtime and SDK
+      # Combined: install x86 runtime + SDK, then immediately persist
+      # DOTNET_ROOT and PATH so every subsequent step sees them.
+      - name: Install .NET 8 SDK/runtime (x86)
         shell: pwsh
         run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1 -UseBasicParsing
 
-          ./dotnet-install.ps1 `
-            -Channel 8.0 `
-            -Architecture x86 `
-            -InstallDir "${env:DOTNET_INSTALL_DIR}" `
-            -Runtime dotnet
+          $dir = "${{ github.workspace }}\dotnet-x86"
 
-          ./dotnet-install.ps1 `
-            -Channel 8.0 `
-            -Architecture x86 `
-            -InstallDir "${env:DOTNET_INSTALL_DIR}"
+          # Runtime first, then full SDK
+          ./dotnet-install.ps1 -Channel 8.0 -Architecture x86 -InstallDir $dir -Runtime dotnet
+          ./dotnet-install.ps1 -Channel 8.0 -Architecture x86 -InstallDir $dir
 
-          & "${env:DOTNET_INSTALL_DIR}\\dotnet.exe" --list-sdks
-          & "${env:DOTNET_INSTALL_DIR}\\dotnet.exe" --list-runtimes
+          Write-Host "--- Installed SDKs ---"    ; & "$dir\dotnet.exe" --list-sdks
+          Write-Host "--- Installed Runtimes ---" ; & "$dir\dotnet.exe" --list-runtimes
 
-      - name: Install Visual C++ Redistributable x86
+          # Persist for all later steps (replaces the two separate env/path steps)
+          "DOTNET_ROOT=$dir"     >> $env:GITHUB_ENV
+          "DOTNET_ROOT_X86=$dir" >> $env:GITHUB_ENV
+          $dir                   >> $env:GITHUB_PATH
+
+      - name: Install VC++ Redistributable (x86)
         shell: pwsh
         run: |
-          $url = "https://aka.ms/vs/17/release/vc_redist.x86.exe"
-          $output = "$env:TEMP\\vc_redist.x86.exe"
+          $out = "$env:TEMP\vc_redist.x86.exe"
+          Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile $out -UseBasicParsing
+          Start-Process $out -ArgumentList '/install /quiet /norestart' -Wait
 
-          Invoke-WebRequest -Uri $url -OutFile $output
-
-          Start-Process `
-            -FilePath $output `
-            -ArgumentList '/install /quiet /norestart' `
-            -Wait
+      # Cache NuGet packages — keyed on all .csproj files so it
+      # invalidates automatically when dependencies change.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
 
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
@@ -62,109 +70,82 @@ jobs:
       - name: Restore NuGet packages
         shell: pwsh
         run: |
-          $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
-          nuget restore $solution.FullName -ConfigFile nuget.config
+          $sln = Get-ChildItem -Recurse -Filter *.sln | Select-Object -First 1 -ExpandProperty FullName
+          nuget restore $sln -ConfigFile nuget.config
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build solution
+      # Single MSBuild pass: build + publish to artifacts/ in one shot.
+      # /p:CopyLocalLockFileAssemblies ensures test deps land in the output.
+      - name: Build & publish binaries
         shell: pwsh
         run: |
-          $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
+          $sln = Get-ChildItem -Recurse -Filter *.sln | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $sln) { Write-Error "No .sln found"; exit 1 }
 
-          if (-not $solution) {
-            Write-Error "No solution file found."
-            exit 1
-          }
+          $out = "${{ github.workspace }}\artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          Write-Host "Building solution: $($solution.FullName)"
-
-          msbuild $solution.FullName `
-            /p:Configuration=${env:BUILD_CONFIGURATION} `
-            /p:Platform=${env:BUILD_PLATFORM} `
-            /p:PlatformToolset=v143
-
-      - name: Publish binaries
-        shell: pwsh
-        run: |
-          $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
-
-          if (-not $solution) {
-            Write-Error "No solution file found."
-            exit 1
-          }
-
-          New-Item -ItemType Directory -Force -Path artifacts
-
-          msbuild $solution.FullName `
-            /p:Configuration=${env:BUILD_CONFIGURATION} `
-            /p:Platform=${env:BUILD_PLATFORM} `
-            /p:OutputPath="${{ github.workspace }}\artifacts" `
-            /p:PlatformToolset=v143
-
-      - name: Set x86 DOTNET_ROOT
-        shell: bash
-        run: |
-          echo "DOTNET_ROOT=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
-          echo "DOTNET_ROOT_X86=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
-
-      - name: Add x86 dotnet to PATH
-        shell: bash
-        run: |
-          echo "${{ github.workspace }}\\dotnet-x86" >> $GITHUB_PATH
+          msbuild $sln `
+            /p:Configuration=$env:BUILD_CONFIGURATION `
+            /p:Platform=$env:BUILD_PLATFORM `
+            /p:PlatformToolset=v143 `
+            /p:OutputPath=$out `
+            /p:CopyLocalLockFileAssemblies=true `
+            /m   # parallel build
 
       - name: Locate VSTest Console
         shell: pwsh
         run: |
-          $vstest = Get-ChildItem `
-            "C:\Program Files\Microsoft Visual Studio" `
-            -Recurse vstest.console.exe `
-            | Select-Object -First 1
+          $vstest = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" `
+                      -Recurse -Filter vstest.console.exe |
+                    Select-Object -First 1 -ExpandProperty FullName
 
-          if (-not $vstest) {
-            Write-Error "vstest.console.exe not found"
-            exit 1
-          }
+          if (-not $vstest) { Write-Error "vstest.console.exe not found"; exit 1 }
 
-          Write-Host "Found VSTest at: $($vstest.FullName)"
+          Write-Host "VSTest: $vstest"
+          "VSTEST_PATH=$vstest" >> $env:GITHUB_ENV
 
-          echo "VSTEST_PATH=$($vstest.FullName)" >> $env:GITHUB_ENV
-
-      - name: Run unit tests with coverage
+      # Runs only against the single x86/Release output in artifacts/.
+      # No duplicate DLL problem — artifacts/ is the one canonical location.
+      - name: Run unit tests (x86) with coverage
         shell: pwsh
         env:
           DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86
           DOTNET_ROOT_X86: ${{ github.workspace }}\dotnet-x86
         run: |
-          # Only pick DLLs from the x86 Release output — avoids duplicates
-          # from Debug/obj folders that don't have the x86 runtime available.
-          $testDlls = Get-ChildItem -Recurse -Filter "*Tests.dll" |
-            Where-Object {
-              $_.FullName -match  [regex]::Escape("\x86\Release\") -and
-              $_.FullName -notmatch '\\obj\\'                       -and
-              $_.FullName -notmatch 'TestAdapter'
-            }
+          $testDlls = Get-ChildItem "${{ github.workspace }}\artifacts" `
+                        -Recurse -Filter "*Tests.dll" |
+                      Where-Object { $_.FullName -notmatch '\\obj\\' } |
+                      Select-Object -ExpandProperty FullName
 
-          if (-not $testDlls) {
-            Write-Error "No x86/Release test DLLs found. Check build output path."
-            exit 1
-          }
+          if (-not $testDlls) { Write-Error "No test DLLs found in artifacts/"; exit 1 }
 
-          Write-Host "Test DLLs to run:"
+          Write-Host "Running:"
           $testDlls | ForEach-Object { Write-Host "  $_" }
 
-          $runSettings = "${{ github.workspace }}\coverlet.runsettings"
-          $settingsArg = if (Test-Path $runSettings) { "/Settings:$runSettings" } else { "" }
+          $args = @($testDlls) + @('/Platform:x86', '/EnableCodeCoverage', '/logger:trx')
 
-          & "$env:VSTEST_PATH" `
-            $testDlls.FullName `
-            /Platform:x86 `
-            /EnableCodeCoverage `
-            $settingsArg
+          $runsettings = "${{ github.workspace }}\coverlet.runsettings"
+          if (Test-Path $runsettings) { $args += "/Settings:$runsettings" }
+
+          & $env:VSTEST_PATH @args
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: build-artifacts
           path: artifacts/
+          retention-days: 7
+
+      # Renders a test results table on the PR page
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Unit Tests (x86)
+          path: '**/*.trx'
+          reporter: dotnet-trx
+          fail-on-error: true
