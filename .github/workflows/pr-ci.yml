@@ -60,9 +60,10 @@ jobs:
         uses: NuGet/setup-nuget@v2
 
       - name: Restore NuGet packages
-        shell: bash
+        shell: pwsh
         run: |
-          nuget restore "$SOLUTION" -ConfigFile nuget.config
+          $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
+          nuget restore $solution.FullName -ConfigFile nuget.config
 
       - name: Build solution
         shell: pwsh
