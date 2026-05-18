@@ -16,19 +16,20 @@ jobs:
     runs-on: windows-latest
     if: github.event.pull_request.draft == false
 
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Installs the x64 SDK (needed by NuGet/MSBuild tooling) AND
-      # sets up the global.json SDK resolver — one less manual step.
       - name: Setup .NET 8 SDK (x64 tooling)
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      # Combined: install x86 runtime + SDK, then immediately persist
-      # DOTNET_ROOT and PATH so every subsequent step sees them.
       - name: Install .NET 8 SDK/runtime (x86)
         shell: pwsh
         run: |
@@ -55,8 +56,6 @@ jobs:
           Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile $out -UseBasicParsing
           Start-Process $out -ArgumentList '/install /quiet /norestart' -Wait
 
-      # Cache NuGet packages — keyed on all .csproj files so it
-      # invalidates automatically when dependencies change.
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
@@ -76,8 +75,6 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # Single MSBuild pass: build + publish to artifacts/ in one shot.
-      # /p:CopyLocalLockFileAssemblies ensures test deps land in the output.
       - name: Build & publish binaries
         shell: pwsh
         run: |
@@ -107,8 +104,6 @@ jobs:
           Write-Host "VSTest: $vstest"
           "VSTEST_PATH=$vstest" >> $env:GITHUB_ENV
 
-      # Runs only against the single x86/Release output in artifacts/.
-      # No duplicate DLL problem — artifacts/ is the one canonical location.
       - name: Run unit tests (x86) with coverage
         shell: pwsh
         env:
@@ -140,7 +135,6 @@ jobs:
           path: artifacts/
           retention-days: 7
 
-      # Renders a test results table on the PR page
       - name: Publish test results
         uses: dorny/test-reporter@v1
         if: always()
