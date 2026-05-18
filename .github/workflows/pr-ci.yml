@@ -9,7 +9,7 @@ env:
   SOLUTION: '**/*.sln'
   BUILD_PLATFORM: x86
   BUILD_CONFIGURATION: Release
-  DOTNET_INSTALL_DIR: 'C:\\Program Files (x86)\\dotnet'
+  DOTNET_INSTALL_DIR: '${{ github.workspace }}\\dotnet-x86'
 
 jobs:
   build-test:
@@ -86,14 +86,14 @@ jobs:
       - name: Set x86 DOTNET_ROOT
         shell: bash
         run: |
-          echo "DOTNET_ROOT=C:\\Program Files (x86)\\dotnet" >> $GITHUB_ENV
-          echo "DOTNET_ROOT_X86=C:\\Program Files (x86)\\dotnet" >> $GITHUB_ENV
+          echo "DOTNET_ROOT=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
+          echo "DOTNET_ROOT_X86=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
 
       - name: Run unit tests with coverage
         shell: pwsh
         env:
-          DOTNET_ROOT: C:\Program Files (x86)\dotnet
-          DOTNET_ROOT_X86: C:\Program Files (x86)\dotnet
+          DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86          
+          DOTNET_ROOT_X86: ${{ github.workspace }}\dotnet-x86
         run: |
           vstest.console.exe `
             .\\artifacts\\**\\*Tests.dll `
