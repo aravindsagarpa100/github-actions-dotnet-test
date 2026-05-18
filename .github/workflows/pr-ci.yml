@@ -109,6 +109,11 @@ jobs:
           echo "DOTNET_ROOT=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
           echo "DOTNET_ROOT_X86=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
 
+      - name: Add x86 dotnet to PATH
+        shell: bash
+        run: |
+          echo "${{ github.workspace }}\\dotnet-x86" >> $GITHUB_PATH
+
       - name: Locate VSTest Console
         shell: pwsh
         run: |
