@@ -65,6 +65,9 @@ jobs:
           $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
           nuget restore $solution.FullName -ConfigFile nuget.config
 
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Build solution
         shell: pwsh
         run: |
