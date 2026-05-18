@@ -1,4 +1,57 @@
 name: PR Continuous Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+
+env:
+  SOLUTION: '**/*.sln'
+  BUILD_PLATFORM: x86
+  BUILD_CONFIGURATION: Release
+  DOTNET_INSTALL_DIR: 'C:\\Program Files (x86)\\dotnet'
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK (x86)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install .NET 8 x86 runtime and SDK
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+
+          ./dotnet-install.ps1 `
+            -Channel 8.0 `
+            -Architecture x86 `
+            -InstallDir "${env:DOTNET_INSTALL_DIR}" `
+            -Runtime dotnet
+
+          ./dotnet-install.ps1 `
+            -Channel 8.0 `
+            -Architecture x86 `
+            -InstallDir "${env:DOTNET_INSTALL_DIR}"
+
+          & "${env:DOTNET_INSTALL_DIR}\\dotnet.exe" --list-sdks
+          & "${env:DOTNET_INSTALL_DIR}\\dotnet.exe" --list-runtimes
+
+      - name: Install Visual C++ Redistributable x86
+        shell: pwsh
+        run: |
+          $url = "https://aka.ms/vs/17/release/vc_redist.x86.exe"
+          $output = "$env:TEMP\\vc_redist.x86.exe"
+
+          Invoke-WebRequest -Uri $url -OutFile $output
+
+          Start-Process `
             -FilePath $output `
             -ArgumentList '/install /quiet /norestart' `
             -Wait
