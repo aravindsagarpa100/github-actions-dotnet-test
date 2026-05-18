@@ -137,28 +137,31 @@ jobs:
           DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86
           DOTNET_ROOT_X86: ${{ github.workspace }}\dotnet-x86
         run: |
-          $testDlls = Get-ChildItem `
-            . `
-            -Recurse `
-            *Tests.dll `
-            | Where-Object {
-                $_.FullName -notmatch '\\obj\\' `
-                -and $_.FullName -notmatch 'TestAdapter'
-              }
+          # Only pick DLLs from the x86 Release output — avoids duplicates
+          # from Debug/obj folders that don't have the x86 runtime available.
+          $testDlls = Get-ChildItem -Recurse -Filter "*Tests.dll" |
+            Where-Object {
+              $_.FullName -match  [regex]::Escape("\x86\Release\") -and
+              $_.FullName -notmatch '\\obj\\'                       -and
+              $_.FullName -notmatch 'TestAdapter'
+            }
 
           if (-not $testDlls) {
-            Write-Error "No test DLLs found"
+            Write-Error "No x86/Release test DLLs found. Check build output path."
             exit 1
           }
 
-          Write-Host "Found test DLLs:"
-          $testDlls.FullName
+          Write-Host "Test DLLs to run:"
+          $testDlls | ForEach-Object { Write-Host "  $_" }
+
+          $runSettings = "${{ github.workspace }}\coverlet.runsettings"
+          $settingsArg = if (Test-Path $runSettings) { "/Settings:$runSettings" } else { "" }
 
           & "$env:VSTEST_PATH" `
             $testDlls.FullName `
             /Platform:x86 `
             /EnableCodeCoverage `
-            /Settings:coverlet.runsettings
+            $settingsArg
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
