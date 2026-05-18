@@ -109,15 +109,22 @@ jobs:
           echo "DOTNET_ROOT=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
           echo "DOTNET_ROOT_X86=${{ github.workspace }}\\dotnet-x86" >> $GITHUB_ENV
 
-      - name: Locate VSTest
+      - name: Locate VSTest Console
         shell: pwsh
         run: |
-          $vsTest = Get-ChildItem `
+          $vstest = Get-ChildItem `
             "C:\Program Files\Microsoft Visual Studio" `
             -Recurse vstest.console.exe `
             | Select-Object -First 1
 
-          echo "VSTEST_PATH=$($vsTest.FullName)" >> $env:GITHUB_ENV
+          if (-not $vstest) {
+            Write-Error "vstest.console.exe not found"
+            exit 1
+          }
+
+          Write-Host "Found VSTest at: $($vstest.FullName)"
+
+          echo "VSTEST_PATH=$($vstest.FullName)" >> $env:GITHUB_ENV
 
       - name: Run unit tests with coverage
         shell: pwsh
@@ -125,7 +132,7 @@ jobs:
           DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86          
           DOTNET_ROOT_X86: ${{ github.workspace }}\dotnet-x86
         run: |
-          vstest.console.exe `
+          & "$env:VSTEST_PATH" `
             .\\artifacts\\**\\*Tests.dll `
             /Platform:x86 `
             /EnableCodeCoverage `
