@@ -1,0 +1,11 @@
+D:\dotnet-github\DemoLibrary\bin\Debug\net8.0\DemoLibrary.deps.json
+D:\dotnet-github\DemoLibrary\bin\Debug\net8.0\DemoLibrary.dll
+D:\dotnet-github\DemoLibrary\bin\Debug\net8.0\DemoLibrary.pdb
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\DemoLibrary.GeneratedMSBuildEditorConfig.editorconfig
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\DemoLibrary.AssemblyInfoInputs.cache
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\DemoLibrary.AssemblyInfo.cs
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\DemoLibrary.csproj.CoreCompileInputs.cache
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\DemoLibrary.dll
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\refint\DemoLibrary.dll
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\DemoLibrary.pdb
+D:\dotnet-github\DemoLibrary\obj\Debug\net8.0\ref\DemoLibrary.dll
