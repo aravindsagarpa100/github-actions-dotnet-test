@@ -71,7 +71,16 @@ jobs:
       - name: Build solution
         shell: pwsh
         run: |
-          msbuild $env:SOLUTION `
+          $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
+
+          if (-not $solution) {
+            Write-Error "No solution file found."
+            exit 1
+          }
+
+          Write-Host "Building solution: $($solution.FullName)"
+
+          msbuild $solution.FullName `
             /p:Configuration=${env:BUILD_CONFIGURATION} `
             /p:Platform=${env:BUILD_PLATFORM} `
             /p:PlatformToolset=v143
@@ -79,12 +88,19 @@ jobs:
       - name: Publish binaries
         shell: pwsh
         run: |
+          $solution = Get-ChildItem -Recurse *.sln | Select-Object -First 1
+
+          if (-not $solution) {
+            Write-Error "No solution file found."
+            exit 1
+          }
+
           New-Item -ItemType Directory -Force -Path artifacts
 
-          msbuild $env:SOLUTION `
+          msbuild $solution.FullName `
             /p:Configuration=${env:BUILD_CONFIGURATION} `
             /p:Platform=${env:BUILD_PLATFORM} `
-            /p:OutputPath=${{ github.workspace }}\\artifacts `
+            /p:OutputPath="${{ github.workspace }}\artifacts" `
             /p:PlatformToolset=v143
 
       - name: Set x86 DOTNET_ROOT
