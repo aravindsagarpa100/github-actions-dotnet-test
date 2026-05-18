@@ -1,0 +1,55 @@
+name: PR Continuous Integration
+            -FilePath $output `
+            -ArgumentList '/install /quiet /norestart' `
+            -Wait
+
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        shell: bash
+        run: |
+          nuget restore "$SOLUTION" -ConfigFile nuget.config
+
+      - name: Build solution
+        shell: pwsh
+        run: |
+          msbuild $env:SOLUTION `
+            /p:Configuration=${env:BUILD_CONFIGURATION} `
+            /p:Platform=${env:BUILD_PLATFORM} `
+            /p:PlatformToolset=v143
+
+      - name: Publish binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+
+          msbuild $env:SOLUTION `
+            /p:Configuration=${env:BUILD_CONFIGURATION} `
+            /p:Platform=${env:BUILD_PLATFORM} `
+            /p:OutputPath=${{ github.workspace }}\\artifacts `
+            /p:PlatformToolset=v143
+
+      - name: Set x86 DOTNET_ROOT
+        shell: bash
+        run: |
+          echo "DOTNET_ROOT=C:\\Program Files (x86)\\dotnet" >> $GITHUB_ENV
+          echo "DOTNET_ROOT_X86=C:\\Program Files (x86)\\dotnet" >> $GITHUB_ENV
+
+      - name: Run unit tests with coverage
+        shell: pwsh
+        env:
+          DOTNET_ROOT: C:\Program Files (x86)\dotnet
+          DOTNET_ROOT_X86: C:\Program Files (x86)\dotnet
+        run: |
+          vstest.console.exe `
+            .\\artifacts\\**\\*Tests.dll `
+            /Platform:x86 `
+            /EnableCodeCoverage `
+            /Settings:coverlet.runsettings
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: artifacts/
