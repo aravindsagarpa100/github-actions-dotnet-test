@@ -1,4 +1,4 @@
-name: PR Continuous Integration
+name: .NET CI
 
 on:
   pull_request:
@@ -6,13 +6,8 @@ on:
       - main
     types: [opened, synchronize, reopened, ready_for_review]
 
-env:
-  BUILD_PLATFORM: x86
-  BUILD_CONFIGURATION: Release
-  DOTNET_X86_DIR: '${{ github.workspace }}\dotnet-x86'
-
 jobs:
-  build-test:
+  build-and-test:
     runs-on: windows-latest
     if: github.event.pull_request.draft == false
 
@@ -25,36 +20,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK (x64 tooling)
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
-
-      - name: Install .NET 8 SDK/runtime (x86)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1 -UseBasicParsing
-
-          $dir = "${{ github.workspace }}\dotnet-x86"
-
-          # Runtime first, then full SDK
-          ./dotnet-install.ps1 -Channel 8.0 -Architecture x86 -InstallDir $dir -Runtime dotnet
-          ./dotnet-install.ps1 -Channel 8.0 -Architecture x86 -InstallDir $dir
-
-          Write-Host "--- Installed SDKs ---"    ; & "$dir\dotnet.exe" --list-sdks
-          Write-Host "--- Installed Runtimes ---" ; & "$dir\dotnet.exe" --list-runtimes
-
-          # Persist for all later steps (replaces the two separate env/path steps)
-          "DOTNET_ROOT=$dir"     >> $env:GITHUB_ENV
-          "DOTNET_ROOT_X86=$dir" >> $env:GITHUB_ENV
-          $dir                   >> $env:GITHUB_PATH
-
-      - name: Install VC++ Redistributable (x86)
-        shell: pwsh
-        run: |
-          $out = "$env:TEMP\vc_redist.x86.exe"
-          Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile $out -UseBasicParsing
-          Start-Process $out -ArgumentList '/install /quiet /norestart' -Wait
+          dotnet-version: 8.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -63,83 +32,28 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
+      - name: Restore dependencies
+        run: dotnet restore
 
-      - name: Restore NuGet packages
-        shell: pwsh
-        run: |
-          $sln = Get-ChildItem -Recurse -Filter *.sln | Select-Object -First 1 -ExpandProperty FullName
-          nuget restore $sln -ConfigFile nuget.config
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+      - name: Test with coverage
+        run: dotnet test --configuration Release --no-build --collect:"XPlat Code Coverage" --logger trx --results-directory ./coverage
 
-      - name: Build & publish binaries
-        shell: pwsh
-        run: |
-          $sln = Get-ChildItem -Recurse -Filter *.sln | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $sln) { Write-Error "No .sln found"; exit 1 }
-
-          $out = "${{ github.workspace }}\artifacts"
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-
-          msbuild $sln `
-            /p:Configuration=$env:BUILD_CONFIGURATION `
-            /p:Platform=$env:BUILD_PLATFORM `
-            /p:PlatformToolset=v143 `
-            /p:OutputPath=$out `
-            /p:CopyLocalLockFileAssemblies=true `
-            /m   # parallel build
-
-      - name: Locate VSTest Console
-        shell: pwsh
-        run: |
-          $vstest = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" `
-                      -Recurse -Filter vstest.console.exe |
-                    Select-Object -First 1 -ExpandProperty FullName
-
-          if (-not $vstest) { Write-Error "vstest.console.exe not found"; exit 1 }
-
-          Write-Host "VSTest: $vstest"
-          "VSTEST_PATH=$vstest" >> $env:GITHUB_ENV
-
-      - name: Run unit tests (x86) with coverage
-        shell: pwsh
-        env:
-          DOTNET_ROOT: ${{ github.workspace }}\dotnet-x86
-          DOTNET_ROOT_X86: ${{ github.workspace }}\dotnet-x86
-        run: |
-          $testDlls = Get-ChildItem "${{ github.workspace }}\artifacts" `
-                        -Recurse -Filter "*Tests.dll" |
-                      Where-Object { $_.FullName -notmatch '\\obj\\' } |
-                      Select-Object -ExpandProperty FullName
-
-          if (-not $testDlls) { Write-Error "No test DLLs found in artifacts/"; exit 1 }
-
-          Write-Host "Running:"
-          $testDlls | ForEach-Object { Write-Host "  $_" }
-
-          $args = @($testDlls) + @('/Platform:x86', '/EnableCodeCoverage', '/logger:trx')
-
-          $runsettings = "${{ github.workspace }}\coverlet.runsettings"
-          if (Test-Path $runsettings) { $args += "/Settings:$runsettings" }
-
-          & $env:VSTEST_PATH @args
-
-      - name: Upload build artifacts
+      - name: Upload coverage reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build-artifacts
-          path: artifacts/
+          name: coverage-report
+          path: ./coverage
           retention-days: 7
 
       - name: Publish test results
         uses: dorny/test-reporter@v1
         if: always()
         with:
-          name: Unit Tests (x86)
-          path: '**/*.trx'
+          name: Unit Tests
+          path: "**/*.trx"
           reporter: dotnet-trx
           fail-on-error: true
